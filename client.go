@@ -85,7 +85,7 @@ func (c *Client) waitMessage(fn Handler) {
 			go c.authenticate(c.password)
 		case eventPlain:
 			go func() {
-				fn(msg)
+				fn(msg.payload())
 				releaseMessage(msg)
 			}()
 		}
@@ -104,7 +104,7 @@ func parseMessage(r *bufio.Reader) (*Message, error) {
 		if i == -1 {
 			continue
 		}
-		e.Header.Add(line[:i], bytes.TrimSpace(line[i+1:len(line)-1]))
+		e.Header.Add(line[:i], line[i+2:len(line)-1])
 
 		peek, _ := r.Peek(1)
 		if bytes.Compare(peek, []byte{'\n'}) == 0 {

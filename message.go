@@ -1,6 +1,7 @@
 package esl
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 )
@@ -9,7 +10,10 @@ var messagePool sync.Pool
 
 type Message struct {
 	Header Header
-	body   []byte
+
+	// bs body start
+	bs   int
+	body []byte
 }
 
 func NewMessage() *Message {
@@ -32,16 +36,44 @@ func releaseMessage(e *Message) {
 
 func (e *Message) Body() []byte {
 	n, _ := e.Header.ContentLength()
-	return e.body[:n]
+	return e.body[e.bs:n]
 }
 
 func (e *Message) ContentType() string {
 	return e.Header.Get("Content-Type")
 }
 
+func (e *Message) payload() *Message {
+	buf := e.Body()
+	e.Header.kvs = e.Header.kvs[:0]
+	var bs int
+	for {
+		l := bytes.IndexByte(buf, '\n')
+		if l == -1 {
+			break
+		}
+		i := bytes.IndexByte(buf, ':')
+		if i != -1 {
+			e.Header.Add(buf[:i], buf[i+2:l])
+		}
+
+		if len(buf) >= l+1 {
+			if buf[l+1] != '\n' {
+				buf = buf[l+1:]
+				bs += l + 1
+				continue
+			}
+
+			e.bs = bs + l + 2
+			break
+		}
+	}
+	return e
+}
+
 func (e *Message) reset() {
+	e.bs = 0
 	e.Header.reset()
-	e.body = e.body[:0]
 }
 
 type CommandReply struct {

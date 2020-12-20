@@ -10,6 +10,9 @@ func messageEqual(m1, m2 Message) bool {
 	if string(m1.body) != string(m2.body) {
 		return false
 	}
+	if m1.bs != m2.bs {
+		return false
+	}
 loop:
 	for _, kv1 := range m1.Header.kvs {
 		for _, kv2 := range m2.Header.kvs {
@@ -33,7 +36,7 @@ func Test_parseMessage(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "parse incoming message",
+			name: "parse log data",
 			args: args{r: bufio.NewReader(bytes.NewReader([]byte("Content-Type: log/data\nContent-Length: 57\nLog-Level: 7\nUser-Data: \n\n2020-11-08 09:57:16.712466 [DEBUG] mod_commands.c:6391 2\n")))},
 			want: Message{
 				Header: Header{kvs: []arg{

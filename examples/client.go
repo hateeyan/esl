@@ -8,8 +8,7 @@ import (
 
 func main() {
 	client, err := esl.Dial("192.168.40.192:8014", "NewVois001", func(msg *esl.Message) {
-		fmt.Println(msg.ContentType())
-		fmt.Println(string(msg.Body()))
+		fmt.Println(msg.Header.Get("Event-Sequence"))
 	})
 	if err != nil {
 		panic(err)
