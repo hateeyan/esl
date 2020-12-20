@@ -43,6 +43,8 @@ func (a args) GetInt(key []byte) (int, error) {
 }
 
 type Header struct {
+	contentLength int
+
 	kvs args
 }
 
@@ -58,6 +60,16 @@ func (h *Header) Get(key string) string {
 	return string(h.kvs.get([]byte(key)))
 }
 
+func (h *Header) ContentLength() (int, error) {
+	if h.contentLength != -1 {
+		return h.contentLength, nil
+	}
+	l, err := h.GetInt("Content-Length")
+	h.contentLength = l
+	return l, err
+}
+
 func (h *Header) reset() {
+	h.contentLength = -1
 	h.kvs = h.kvs[:0]
 }

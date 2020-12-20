@@ -3,24 +3,26 @@ package main
 import (
 	"fmt"
 	"github.com/hateeyan/esl"
+	"time"
 )
 
 func main() {
-	client, err := esl.Dial("192.168.40.192:8014", "NewVois001")
+	client, err := esl.Dial("192.168.40.192:8014", "NewVois001", func(msg *esl.Message) {
+		fmt.Println(msg.ContentType())
+		fmt.Println(string(msg.Body()))
+	})
 	if err != nil {
 		panic(err)
 	}
 	defer client.Close()
-
-	if err := client.Send("log 7"); err != nil {
-		panic(err)
-	}
-	if err := client.Send("event all"); err != nil {
-		panic(err)
+	client.OnReconnect = func(c *esl.Client) {
+		c.Command("event all")
 	}
 
-	client.Run(func(msg *esl.Message) {
-		fmt.Println(msg.ContentType())
-		fmt.Println(string(msg.Body()))
-	})
+	reply := client.Command("event all")
+	if err := reply.Err(); err != nil {
+		panic(err)
+	}
+
+	time.Sleep(5 * time.Minute)
 }

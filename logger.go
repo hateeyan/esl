@@ -9,4 +9,8 @@ type Logger interface {
 	Printf(format string, args ...interface{})
 }
 
-var defaultLogger = log.New(os.Stderr, "", log.LstdFlags)
+var logger Logger = log.New(os.Stdout, "", log.LstdFlags)
+
+func SetLogger(l Logger) {
+	logger = l
+}

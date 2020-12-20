@@ -6,51 +6,98 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
+	"time"
 )
 
+type Handler func(msg *Message)
+
 type Client struct {
-	conn   *net.TCPConn
-	logger Logger
+	addr     *net.TCPAddr
+	password string
+	r        *bufio.Reader
+	wc       io.WriteCloser
+
+	OnReconnect func(c *Client)
+
+	done             bool
+	authChan         chan error
+	mu               sync.Mutex
+	commandReplyChan chan *CommandReply
 }
 
-func Dial(addr, password string) (*Client, error) {
+func Dial(addr, password string, fn Handler) (*Client, error) {
 	raddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.DialTCP("tcp", nil, raddr)
-	if err != nil {
+	client := &Client{addr: raddr, password: password, authChan: make(chan error, 1), commandReplyChan: make(chan *CommandReply, 8)}
+	if err = client.dial(); err != nil {
 		return nil, err
 	}
-	client := &Client{conn: conn, logger: defaultLogger}
-	if err := client.authenticate(password); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	return client, nil
+	go client.run(fn)
+	err = client.waitAuth()
+	return client, err
 }
 
-func (c *Client) Run(fn func(msg *Message)) {
-	r := bufio.NewReader(c.conn)
+func (c *Client) run(fn Handler) {
 	for {
-		msg := c.parseMessage(r)
-		go func() {
-			fn(msg)
-			releaseMessage(msg)
-		}()
+		c.waitMessage(fn)
+
+		if c.done {
+			break
+		}
+		c.reconnect()
 	}
 }
 
-func (c *Client) parseMessage(r *bufio.Reader) *Message {
+func (c *Client) dial() error {
+	conn, err := net.DialTCP("tcp", nil, c.addr)
+	if err != nil {
+		return err
+	}
+	logger.Printf("connected to fs esl: %s", c.addr.String())
+	if c.wc != nil {
+		_ = c.wc.Close()
+	}
+	c.wc = conn
+	if c.r == nil {
+		c.r = bufio.NewReader(conn)
+	} else {
+		c.r.Reset(conn)
+	}
+	return nil
+}
+
+func (c *Client) waitMessage(fn Handler) {
+	for {
+		msg, err := parseMessage(c.r)
+		if err != nil {
+			logger.Printf("unable to parse message: %v", err)
+			break
+		}
+		switch msg.ContentType() {
+		case commandReply:
+			reply := <-c.commandReplyChan
+			reply.parse(msg)
+			releaseMessage(msg)
+		case authRequest:
+			go c.authenticate(c.password)
+		case eventPlain:
+			go func() {
+				fn(msg)
+				releaseMessage(msg)
+			}()
+		}
+	}
+}
+
+func parseMessage(r *bufio.Reader) (*Message, error) {
 	e := acquireMessage()
 	for {
 		line, err := r.ReadSlice('\n')
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			c.logger.Printf("unable to read header from socket: %v", err)
-			break
+			return nil, err
 		}
 
 		i := bytes.IndexByte(line, ':')
@@ -62,58 +109,103 @@ func (c *Client) parseMessage(r *bufio.Reader) *Message {
 		peek, _ := r.Peek(1)
 		if bytes.Compare(peek, []byte{'\n'}) == 0 {
 			_, _ = r.Discard(1)
-			n, err := e.Header.GetInt("Content-Length")
+			n, err := e.Header.ContentLength()
 			if err != nil {
-				c.logger.Printf("unable to parse int value: %v", err)
+				logger.Printf("unable to parse Content-Length: %v", err)
 			}
 			// has body
 			if n > 0 {
 				if len(e.body) < n {
 					e.body = make([]byte, n)
-				} else {
-					e.body = e.body[:n]
 				}
-				_, err := r.Read(e.body)
-				if err != nil && err != io.EOF {
-					c.logger.Printf("unable to read body from socket: %v", err)
+				_, err = io.ReadFull(r, e.body)
+				if err != nil {
+					return nil, err
 				}
 			}
 			break
 		}
 	}
-	return e
+	return e, nil
 }
 
-func (c *Client) authenticate(password string) error {
-	r := bufio.NewReader(c.conn)
-	msg := c.parseMessage(r)
-	ct := msg.ContentType()
-	if ct != "auth/request" {
-		return fmt.Errorf("unexpected Content-Type for authenticate: %s", ct)
-	}
-	releaseMessage(msg)
+func (c *Client) authenticate(password string) {
+	reply := newCommandReply()
 
-	_, err := c.conn.Write([]byte("auth " + password + "\n\n"))
+	err := c.sendCommand("auth "+password, &reply)
 	if err != nil {
+		c.authChan <- err
+		return
+	}
+	reply.wait()
+	if reply.Succeed() {
+		logger.Printf("login to fs esl: %s", c.addr.String())
+		c.authChan <- nil
+	} else {
+		c.authChan <- fmt.Errorf("authenticate (password: %s) failed", c.password)
+	}
+}
+
+func (c *Client) reconnect() {
+	for {
+		if err := c.dial(); err != nil {
+			logger.Printf("unable to connect to fs esl: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		break
+	}
+
+	go func() {
+		if err := c.waitAuth(); err != nil {
+			logger.Printf("fs esl reconnect failed: %v", err)
+			return
+		}
+		logger.Printf("fs esl reconnected: %s", c.addr.String())
+		if c.OnReconnect != nil {
+			c.OnReconnect(c)
+		}
+	}()
+}
+
+func (c *Client) waitAuth() error {
+	select {
+	case err := <-c.authChan:
+		return err
+	case <-time.After(3 * time.Second):
+		return fmt.Errorf("authenticate timeout")
+	}
+}
+
+func (c *Client) sendCommand(command string, reply *CommandReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.send(command); err != nil {
 		return err
 	}
-
-	msg = c.parseMessage(r)
-	ct = msg.ContentType()
-	reply := msg.Header.Get("Reply-Text")
-	releaseMessage(msg)
-	if ct == "command/reply" && reply == "+OK accepted" {
-		return nil
-	}
-
-	return fmt.Errorf("login failed: %s", reply)
+	c.commandReplyChan <- reply
+	return nil
 }
 
-func (c *Client) Send(command string) error {
-	_, err := c.conn.Write([]byte(command + "\n\n"))
+func (c *Client) send(command string) error {
+	_, err := c.wc.Write([]byte(command + "\n\n"))
 	return err
 }
 
+func (c *Client) Command(command string) CommandReply {
+	reply := newCommandReply()
+
+	err := c.sendCommand(command, &reply)
+	if err != nil {
+		reply.err = err
+		return reply
+	}
+	reply.wait()
+
+	return reply
+}
+
 func (c *Client) Close() error {
-	return c.conn.Close()
+	c.done = true
+	return c.wc.Close()
 }
