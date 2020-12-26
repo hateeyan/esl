@@ -117,6 +117,11 @@ func (c *CommandReply) JobID() string {
 	return c.jobUUID
 }
 
+func (c *CommandReply) setErr(err error) {
+	c.err = err
+	c.c <- struct{}{}
+}
+
 func (c *CommandReply) Err() error {
 	return c.err
 }

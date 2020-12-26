@@ -3,12 +3,15 @@ package esl
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 )
+
+var ErrAclDenied = errors.New("access denied, please check acl config")
 
 type Handler func(msg *Message)
 
@@ -88,6 +91,10 @@ func (c *Client) waitMessage(fn Handler) {
 				fn(msg.payload())
 				releaseMessage(msg)
 			}()
+		case rudeRejection:
+			c.authChan <- ErrAclDenied
+			releaseMessage(msg)
+			return
 		}
 	}
 }
