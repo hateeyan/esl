@@ -34,9 +34,16 @@ func releaseMessage(e *Message) {
 	messagePool.Put(e)
 }
 
+// Body return message body
 func (e *Message) Body() []byte {
 	n, _ := e.Header.ContentLength()
 	return e.body[e.bs:n]
+}
+
+// Bytes return original message
+func (e *Message) Bytes() []byte {
+	n, _ := e.Header.ContentLength()
+	return e.body[:n]
 }
 
 func (e *Message) ContentType() string {
