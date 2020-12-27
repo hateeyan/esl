@@ -87,10 +87,10 @@ func (c *Client) waitMessage(fn Handler) {
 		case authRequest:
 			go c.authenticate(c.password)
 		case eventPlain:
-			go func() {
+			go func(msg *Message) {
 				fn(msg.payload())
 				releaseMessage(msg)
-			}()
+			}(msg)
 		case rudeRejection:
 			c.authChan <- ErrAclDenied
 			releaseMessage(msg)
@@ -125,7 +125,7 @@ func parseMessage(r *bufio.Reader) (*Message, error) {
 				if len(e.body) < n {
 					e.body = make([]byte, n)
 				}
-				_, err = io.ReadFull(r, e.body)
+				_, err = io.ReadFull(r, e.body[:n])
 				if err != nil {
 					return nil, err
 				}
