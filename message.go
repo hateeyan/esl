@@ -1,7 +1,10 @@
 package esl
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"io"
 	"strings"
 	"sync"
 )
@@ -30,29 +33,65 @@ func acquireMessage() *Message {
 	return msg
 }
 
-func releaseMessage(e *Message) {
-	messagePool.Put(e)
+func ReleaseMessage(msg *Message) {
+	messagePool.Put(msg)
+}
+
+func (m *Message) parse(r *bufio.Reader) error {
+	for {
+		line, err := r.ReadSlice('\n')
+		if err != nil {
+			return err
+		}
+
+		i := bytes.IndexByte(line, ':')
+		if i == -1 {
+			continue
+		}
+		m.Header.Add(line[:i], line[i+2:len(line)-1])
+
+		peek, _ := r.Peek(1)
+		if bytes.Compare(peek, []byte{'\n'}) == 0 {
+			_, _ = r.Discard(1)
+			n, err := m.Header.ContentLength()
+			if err != nil {
+				logger.Printf("unable to parse Content-Length: %v", err)
+			}
+			// has body
+			if n > 0 {
+				if len(m.body) < n {
+					m.body = make([]byte, n)
+				}
+				_, err = io.ReadFull(r, m.body[:n])
+				if err != nil {
+					return err
+				}
+			}
+			break
+		}
+	}
+	return nil
 }
 
 // Body return message body
-func (e *Message) Body() []byte {
-	n, _ := e.Header.ContentLength()
-	return e.body[e.bs:n]
+func (m *Message) Body() []byte {
+	n, _ := m.Header.ContentLength()
+	return m.body[m.bs:n]
 }
 
 // Bytes return original message
-func (e *Message) Bytes() []byte {
-	n, _ := e.Header.ContentLength()
-	return e.body[:n]
+func (m *Message) Bytes() []byte {
+	n, _ := m.Header.ContentLength()
+	return m.body[:n]
 }
 
-func (e *Message) ContentType() string {
-	return e.Header.Get("Content-Type")
+func (m *Message) ContentType() string {
+	return m.Header.Get("Content-Type")
 }
 
-func (e *Message) payload() *Message {
-	buf := e.Body()
-	e.Header.kvs = e.Header.kvs[:0]
+func (m *Message) payload() *Message {
+	buf := m.Body()
+	m.Header.args.reset()
 	var bs int
 	for {
 		l := bytes.IndexByte(buf, '\n')
@@ -61,7 +100,7 @@ func (e *Message) payload() *Message {
 		}
 		i := bytes.IndexByte(buf, ':')
 		if i != -1 {
-			e.Header.Add(buf[:i], buf[i+2:l])
+			m.Header.Add(buf[:i], buf[i+2:l])
 		}
 
 		if len(buf) >= l+1 {
@@ -71,64 +110,44 @@ func (e *Message) payload() *Message {
 				continue
 			}
 
-			e.bs = bs + l + 2
+			m.bs = bs + l + 2
 			break
 		}
 	}
-	return e
+	return m
 }
 
-func (e *Message) reset() {
-	e.bs = 0
-	e.Header.reset()
+func (m *Message) reset() {
+	m.bs = 0
+	m.Header.reset()
 }
 
 type CommandReply struct {
-	replyText string
-	jobUUID   string
-	err       error
-
-	c chan struct{}
+	*Message
+	err error
 }
 
-func newCommandReply() CommandReply {
-	return CommandReply{c: make(chan struct{})}
+// replyResult return command execute result
+func replyResult(reply string) bool {
+	return strings.HasPrefix(reply, replyOK)
 }
 
-func (c *CommandReply) parse(m *Message) {
-	c.replyText = m.Header.Get("Reply-Text")
-	c.jobUUID = m.Header.Get("Job-UUID")
-	c.c <- struct{}{}
-}
-
-func (c *CommandReply) wait() {
-	<-c.c
-}
-
-func (c *CommandReply) Succeed() bool {
-	i := strings.IndexByte(c.replyText, ' ')
-	if i == -1 {
-		return false
-	}
-	switch c.replyText[:i] {
-	case replyOK:
-		return true
-	case replyERR:
-		return false
-	default:
-		return false
-	}
-}
-
+// JobID return bgapi job id
 func (c *CommandReply) JobID() string {
-	return c.jobUUID
-}
-
-func (c *CommandReply) setErr(err error) {
-	c.err = err
-	c.c <- struct{}{}
+	return c.Header.Get("Job-UUID")
 }
 
 func (c *CommandReply) Err() error {
-	return c.err
+	if c.err != nil {
+		return c.err
+	}
+
+	reply := c.Message.Header.Get("Reply-Text")
+	if reply == "" {
+		reply = string(c.Message.Body())
+	}
+	if !replyResult(reply) {
+		return fmt.Errorf("esl: failed to execute command: %s", strings.TrimSpace(reply))
+	}
+	return nil
 }
