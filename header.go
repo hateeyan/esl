@@ -6,7 +6,15 @@ type Header struct {
 	args Args
 }
 
-func (h *Header) Add(key, value []byte) {
+func (h *Header) Set(key, value string) {
+	h.args.Set(key, value)
+}
+
+func (h *Header) Add(key, value string) {
+	h.args.Add(key, value)
+}
+
+func (h *Header) AddBytes(key, value []byte) {
 	h.args.AddBytes(key, value)
 }
 

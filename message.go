@@ -48,7 +48,7 @@ func (m *Message) parse(r *bufio.Reader) error {
 		if i == -1 {
 			continue
 		}
-		m.Header.Add(line[:i], line[i+2:len(line)-1])
+		m.Header.AddBytes(line[:i], line[i+2:len(line)-1])
 
 		peek, _ := r.Peek(1)
 		if bytes.Compare(peek, []byte{'\n'}) == 0 {
@@ -100,7 +100,7 @@ func (m *Message) payload() *Message {
 		}
 		i := bytes.IndexByte(buf, ':')
 		if i != -1 {
-			m.Header.Add(buf[:i], buf[i+2:l])
+			m.Header.AddBytes(buf[:i], buf[i+2:l])
 		}
 
 		if len(buf) >= l+1 {
