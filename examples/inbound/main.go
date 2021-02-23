@@ -1,14 +1,5 @@
-# esl
+package main
 
-Freeswitch Event Socket Protocol implementation for Go.
-
-Still in progress.
-
-### Usage
-
-#### inbound
-
-```go
 import (
 	"fmt"
 	"github.com/hateeyan/esl"
@@ -27,6 +18,7 @@ func main() {
 				}
 			},
 			OnEvent: func(msg *esl.Message) {
+				//fmt.Println(msg.Header.Get("Event-Sequence"))
 				event := msg.Header.Get("Event-Name")
 				fmt.Println("receive new event:", event, len(msg.Bytes()))
 				switch event {
@@ -53,38 +45,3 @@ func main() {
 
 	time.Sleep(5 * time.Minute)
 }
-```
-
-#### outbound
-
-```go
-import (
-	"fmt"
-	"github.com/hateeyan/esl"
-)
-
-func main() {
-	outbound := esl.Outbound{
-		Handler: func(conn *esl.Connection) {
-			fmt.Println("new connection")
-			fmt.Println(string(conn.Info().Bytes()))
-			reply := conn.Execute("answer", "")
-			if err := reply.Err(); err != nil {
-				panic(err)
-			}
-			reply = conn.Execute("info", "")
-			if err := reply.Err(); err != nil {
-				panic(err)
-			}
-			reply = conn.Hangup("NORMAL_CLEARING")
-			if err := reply.Err(); err != nil {
-				panic(err)
-			}
-		},
-	}
-	if err := outbound.Serve(); err != nil {
-		panic(err)
-	}
-}
-```
-
