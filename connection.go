@@ -216,6 +216,26 @@ func (c *Connection) Event(arg string) (reply CommandReply) {
 	return
 }
 
+// Hangup Hangs up a channel
+// cause: https://freeswitch.org/confluence/display/FREESWITCH/Hangup+Cause+Code+Table
+func (c *Connection) Hangup(cause string) (reply CommandReply) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cmd := AcquireCommand(MessageType).SetCommand("hangup")
+	if cause != "" {
+		cmd.SetHeader("hangup-cause", cause)
+	}
+	err := c.send(cmd)
+	releaseCommand(cmd)
+	if err != nil {
+		reply.err = err
+		return
+	}
+
+	reply.Message = c.waitReply()
+	return
+}
+
 func (c *Connection) Close() error {
 	return c.conn.Close()
 }

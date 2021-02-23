@@ -18,7 +18,7 @@ func main() {
 			if err := reply.Err(); err != nil {
 				panic(err)
 			}
-			reply = conn.Command(esl.AcquireCommand(esl.MessageType).SetCommand("hangup").SetHeader("hangup-cause", "NORMAL_CLEARING"))
+			reply = conn.Hangup("NORMAL_CLEARING")
 			if err := reply.Err(); err != nil {
 				panic(err)
 			}

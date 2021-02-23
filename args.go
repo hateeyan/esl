@@ -17,6 +17,18 @@ type Args struct {
 	buf []byte
 }
 
+func (a *Args) Set(key, value string) {
+	n := len(a.kvs)
+	for i := 0; i < n; i++ {
+		kv := &a.kvs[i]
+		if key == string(kv.key) {
+			kv.value = append(kv.value[:0], value...)
+			return
+		}
+	}
+	a.Add(key, value)
+}
+
 func (a *Args) Add(key, value string) {
 	var kv *arg
 	a.kvs, kv = allocArg(a.kvs)
