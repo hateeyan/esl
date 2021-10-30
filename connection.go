@@ -9,9 +9,9 @@ import (
 )
 
 type Applications struct {
-	// OnReconnect func called after reconnected
-	OnReconnect func(c *Inbound)
-	// OnEvent func called when a event message fetched
+	// OnReconnect func called when reconnecting
+	OnReconnect func(c *Inbound, err error)
+	// OnEvent func called when an event message fetched
 	OnEvent func(msg *Message)
 }
 

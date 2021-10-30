@@ -20,12 +20,17 @@ func main() {
 		Address:  "192.168.40.249:8021",
 		Password: "ClueCon",
 		Apps: esl.Applications{
-			OnReconnect: func(c *esl.Inbound) {
-				reply := c.Event("CHANNEL_HANGUP_COMPLETE HEARTBEAT")
-				if err := reply.Err(); err != nil {
-					panic(err)
-				}
-			},
+            OnReconnect: func(c *esl.Inbound, err error) {
+                if err != nil {
+                    fmt.Println("reconnect failed:", err)
+                    return
+                }
+                // do something after reconnected...
+                reply := c.Event("CHANNEL_HANGUP_COMPLETE HEARTBEAT")
+                if err := reply.Err(); err != nil {
+                    panic(err)
+                }
+            },
 			OnEvent: func(msg *esl.Message) {
 				event := msg.Header.Get("Event-Name")
 				fmt.Println("receive new event:", event, len(msg.Bytes()))

@@ -6,7 +6,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 )
 
 var (
@@ -115,13 +114,11 @@ func (i *Inbound) authenticate(password string) error {
 func (i *Inbound) reconnect() error {
 	for count := 1; i.MaxReconnect == 0 || count <= i.MaxReconnect; count++ {
 		err := i.dial(i.Password)
-		if err != nil {
-			logger.Printf("unable to reconnect to fs esl(tried: %d): %v", count, err)
-			time.Sleep(3 * time.Second)
-			continue
-		}
 		if i.apps.OnReconnect != nil {
-			i.apps.OnReconnect(i)
+			i.apps.OnReconnect(i, err)
+		}
+		if err != nil {
+			continue
 		}
 		return nil
 	}
