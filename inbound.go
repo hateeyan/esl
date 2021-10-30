@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -23,6 +24,8 @@ type Inbound struct {
 	// Password freeswitch esl auth password
 	// Required
 	Password string
+	// Maximum duration for event socket connected
+	DialTimeout time.Duration
 	// MaxReconnect max reconnect count
 	// If the value is set to 0, then no limit will be enforced
 	// Default: 0
@@ -62,7 +65,7 @@ func (i *Inbound) run() {
 }
 
 func (i *Inbound) dial(password string) error {
-	conn, err := net.Dial("tcp", i.Address)
+	conn, err := net.DialTimeout("tcp", i.Address, i.DialTimeout)
 	if err != nil {
 		return err
 	}
